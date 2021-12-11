@@ -12,6 +12,8 @@ from . import fpgm_pruner
 from .fpgm_pruner import *
 from . import unstructured_pruner
 from .unstructured_pruner import *
+from . import resrep_pruner
+from .resrep_pruner import *
 
 __all__ = []
 
@@ -22,3 +24,4 @@ __all__ += fpgm_pruner.__all__
 __all__ += pruner.__all__
 __all__ += filter_pruner.__all__
 __all__ += unstructured_pruner.__all__
+__all__ += resrep_pruner.__all__
