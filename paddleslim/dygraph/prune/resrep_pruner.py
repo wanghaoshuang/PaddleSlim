@@ -153,8 +153,8 @@ class ResRepPruner():
 
     def channel_scores(self, weight):
         weight = weight.numpy()
-        ele_count = np.product(weight.shape[1:])
-        return np.sqrt(np.sum(weight**2, axis=(1,2,3))/ele_count)
+        #ele_count = np.product(weight.shape[1:])
+        return np.sqrt(np.sum(weight**2, axis=(1,2,3)))
         # return np.abs(weight).mean(axis=(1,2,3)) # l1norm
 
     def update_mask(self):
@@ -241,7 +241,7 @@ class ResRepPruner():
         self.opt.minimize(loss)
 
     def state_dict(self):
-        return self.state_dict()
+        return self.opt.state_dict()
 
     def set_state_dict(self, state_dict):
-        self.set_state_dict(state_dict)
+        self.opt.set_state_dict(state_dict)
