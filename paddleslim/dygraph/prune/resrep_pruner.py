@@ -1,3 +1,4 @@
+import sys
 import logging
 import copy
 import numpy as np
@@ -85,6 +86,8 @@ class ResRepPruner():
         self.opt = opt
         self.target_flops = target_flops
 
+        self.skip_shortcut = True
+
         self.original_flops, self.param2flops = flops(
             model, inputs, dtypes=dtypes, only_conv=True, detail=True)
 
@@ -99,6 +102,8 @@ class ResRepPruner():
             if _name not in self.conv2partners:
                 self.conv2partners[_name] = []
             for detail in collection.all_pruning_details():
+                if _name == detail.name and detail.axis == _axis:
+                    continue
                 self.conv2partners[_name].append(
                     (detail.name, detail.axis, detail.var.shape(), detail.op))
                 if detail.axis == 0 and detail.op.type() == "conv2d":
@@ -106,6 +111,21 @@ class ResRepPruner():
                         self.brothers[_name] = []
                     self.brothers[_name].append(detail.name)
 
+        if self.skip_shortcut:
+            shortcut_flops = 0
+            for _k, _item in self.brothers.items():
+                self.conv2partners.pop(_k)
+                shortcut_flops += self.param2flops[_k]
+                for _n in _item:
+                    shortcut_flops += self.param2flops[_n]
+            print(f"Shortcut will be skipped and {shortcut_flops/self.original_flops}FLOPs won't be pruned directly.")
+
+        self.targets = self.conv2partners.keys()
+        print(f"Directly pruned convolutions: {self.targets}")
+        print("----------------self.conv2partners.items------------------------")
+        for _k, _item in self.conv2partners.items():
+            print(f"{_k}\t{_item}")
+        
         program = dygraph2program(model, inputs=inputs)
         graph = GraphWrapper(program)
 
@@ -126,6 +146,7 @@ class ResRepPruner():
 
         self.compactor_opt = copy.deepcopy(self.opt)
         self.compactor_opt._momentum = 0.99
+        self.compactor_opt._learning_rate = self.opt._learning_rate
         self.compactor_opt._parameter_list.clear()
 
         self.convs = []  # global channel id --> conv2d name
@@ -138,16 +159,17 @@ class ResRepPruner():
                                    paddle.fluid.dygraph.nn.BatchNorm)):
                 parent_layer, sub_name = \
                     find_parent_layer_and_sub_name(self.model, _name)
+
+                conv_name = self.bn2conv[_layer.weight.name]
+                if self.skip_shortcut and conv_name not in self.targets:
+                    continue
                 bn = BatchNormWrapper(_layer)
-
                 self.compactor_opt._parameter_list.append(bn.compactor.weight)
-
                 setattr(parent_layer, sub_name, bn)
-                conv_name = self.bn2conv[bn._layer.weight.name]
                 self.conv2compactor[conv_name] = bn.compactor
                 self.conv2mask[conv_name] = bn.mask
                 self.total_channels += len(bn.mask)
-                if conv_name in self.conv2partners:
+                if conv_name in self.targets:
                     self.convs.extend([conv_name] * len(bn.mask))
                     self.offsets.extend(range(len(bn.mask)))
         self.compactor_opt._param_groups = self.compactor_opt._parameter_list
@@ -158,6 +180,7 @@ class ResRepPruner():
 
         batch_size = 256
         self.warmup_steps = 5 * 1281167 // batch_size
+#        self.warmup_steps = 0 # debugggggggggggggggggggggggggggggggggggggggggg
         self.interval_steps = 200
         self.deactivated_granularity = 4
         self.least_channel = 1
@@ -175,15 +198,16 @@ class ResRepPruner():
         # return np.abs(weight).mean(axis=(1,2,3)) # l1norm
 
     def update_mask(self):
-        self.reset_mask()
         if self.cur_flops < self.target_flops * self.original_flops:
             return
+        self.reset_mask()
         self.cur_deactivated = self.cur_deactivated + self.deactivated_granularity
         scores = []
-        for _conv, _brothers in self.brothers.items():
+        for _conv in self.targets:
             _scores = self.channel_scores(self.conv2compactor[_conv].weight)
-            for _brother in _brothers:
-                _scores += self.channel_scores(self.conv2compactor[_brother]
+            if _conv in self.brothers:
+                for _brother in _brothers:
+                    _scores += self.channel_scores(self.conv2compactor[_brother]
                                                .weight)
             scores.extend(list(_scores))
         idxes = np.argsort(scores)
@@ -222,8 +246,9 @@ class ResRepPruner():
                         param2flops[_name] -= one_channel_flops
         tmp = [(_p, _f / self.param2flops[_p], _f)
                for _p, _f in param2flops.items()]
+        _scores = [scores[_i] for _i in idxes[deactivated_count-4:deactivated_count]]
         print(
-            f"self.cur_flops: {self.cur_flops/self.original_flops}; deactivated_count: {deactivated_count}; {tmp}"
+            f"self.cur_flops: {self.cur_flops/self.original_flops};\nmask idx: {idxes[deactivated_count-4:deactivated_count]};\nscores: {_scores};\ndeactivated_count: {deactivated_count}/{self.total_channels};\n{tmp}"
         )
 
     def mask_compactor_grad(self):
@@ -251,7 +276,10 @@ class ResRepPruner():
 
     def step(self):
 
-        if (self.current_step > self.warmup_steps):
+#        if self.current_step == 0: # for load checkpoints
+#            self.update_mask()
+
+        if (self.current_step >= self.warmup_steps):
             self.mask_compactor_grad()
 
         self.opt.step()
@@ -263,10 +291,12 @@ class ResRepPruner():
             if ((self.current_step - self.warmup_steps) % self.interval_steps ==
                     0):
                 self.update_mask()
-                print(
-                    f"step: {self.current_step}; self.cur_flops: {self.cur_flops/self.original_flops}; deactivate channels: {self.cur_deactivated}/{self.total_channels};"
-                )
         self.current_step += 1
+
+#        print(f"self.opt.state_dict(): {self.opt.state_dict()['LR_Scheduler']}")
+#        print(f"self.compactor_opt.state_dict(): {self.compactor_opt.state_dict()['LR_Scheduler']}")
+#        if self.current_step >=2:
+#            sys.exit(0)
 
     def clear_grad(self):
         self.opt.clear_grad()
