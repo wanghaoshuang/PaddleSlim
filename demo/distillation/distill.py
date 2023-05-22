@@ -79,7 +79,6 @@ def create_optimizer(args):
 
 
 def compress(args):
-
     fleet.init(is_collective=True)
 
     if args.data == "cifar10":
@@ -97,8 +96,8 @@ def compress(args):
         raise ValueError("{} is not supported.".format(args.data))
     image_shape = [int(m) for m in image_shape.split(",")]
 
-    assert args.model in model_list, "{} is not in lists: {}".format(args.model,
-                                                                     model_list)
+    assert args.model in model_list, "{} is not in lists: {}".format(
+        args.model, model_list)
     student_program = paddle.static.Program()
     s_startup = paddle.static.Program()
     places = paddle.static.cuda_places(
@@ -202,7 +201,7 @@ def compress(args):
                 _logger.info(
                     "train_epoch {} step {} lr {:.6f}, loss {:.6f}, class loss {:.6f}, distill loss {:.6f}".
                     format(epoch_id, step_id,
-                           lr.get_lr(), loss_1[0], loss_2[0], loss_3[0]))
+                           lr.get_lr(), loss_1, loss_2, loss_3))
             lr.step()
         val_acc1s = []
         val_acc5s = []
