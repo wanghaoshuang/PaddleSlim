@@ -31,6 +31,7 @@ class QuantizedRowParallelLinear(ConvertibleQuantedLayer):
         self.weight = layer.weight
         self.bias = layer.bias
         self._name = layer._name
+        print(f"weoght name: {self.weight.name}; layer name: {self._name}")
         self.input_is_parallel = layer.input_is_parallel
         self.is_mp = layer.is_mp
         self.model_parallel_group = layer.model_parallel_group

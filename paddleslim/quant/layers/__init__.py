@@ -13,5 +13,11 @@
 # limitations under the License.
 
 from .parallel_linear import QuantizedColumnParallelLinear, QuantizedRowParallelLinear
+from .recompute_linear import QuantedRecomputeLinear
+from .recompute_parallel_linear import QuantizedRecomputeColumnParallelLinear, QuantizedRecomputeRowParallelLinear
 
-__all__ = ["QuantizedColumnParallelLinear", "QuantizedRowParallelLinear"]
+__all__ = ["QuantizedColumnParallelLinear",
+            "QuantizedRowParallelLinear",
+            "QuantedRecomputeLinear",
+            "QuantizedRecomputeColumnParallelLinear",
+            "QuantizedRecomputeRowParallelLinear",]
