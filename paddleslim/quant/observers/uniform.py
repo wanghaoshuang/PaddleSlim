@@ -15,6 +15,7 @@
 import abc
 from typing import Tuple
 import numpy as np
+import paddle
 from paddle.quantization.base_observer import BaseObserver
 
 
@@ -112,3 +113,64 @@ class UniformObserver(BaseObserver):
             self._zero_point = _qmin - round(_min / self._scale)
             self._zero_point = np.clip(self._zero_point, _qmin, _qmax)
         return self._scale, self._zero_point
+
+    def gather_scale(self):
+        """
+        在分布式训练中，汇聚各进程的 scale 并返回全局最大 scale。
+
+        分布式并行模式下 scale 的合并逻辑：
+        -----------------------------------------------------------------------
+        1. 纯数据并行 (DP only, dp_degree > 1, mp_degree = 1):
+           - 每个 DP rank 独立计算 scale，数据分片不同导致 scale 可能不同
+           - all_gather 收集所有 DP rank 的 scale
+           - 取所有 scale 的最大值，确保量化范围覆盖所有数据分片
+
+        2. 纯模型并行 (MP only, dp_degree = 1, mp_degree > 1):
+           - 各 MP rank 持有模型的不同部分，scale 相互独立
+           - 无需跨 rank 合并，直接返回当前 rank 的 scale
+
+        3. 混合并行 (DP + MP, dp_degree > 1, mp_degree > 1):
+           - all_gather 收集所有 rank 的 scale，总数为 dp_degree * mp_degree
+           - 通过 mp_id 筛选出同一 MP group 内的所有 DP rank 的 scale
+           - 对这些 scale 取最大值，保证同一模型分片在所有数据分片上的量化一致性
+        -----------------------------------------------------------------------
+
+        Returns:
+            paddle.Tensor: 汇聚后的全局 scale
+        """
+        from paddle.distributed import fleet
+
+        scale = self.scales()
+
+        # 获取分布式并行参数
+        hcg = fleet.get_hybrid_communicate_group()
+        dp_degree = hcg.get_data_parallel_world_size()
+        mp_degree = hcg.get_model_parallel_world_size()
+        mp_id = hcg.get_model_parallel_rank()
+
+        if dp_degree > 1:
+            # 收集所有 rank 的 scale
+            scale_list = []
+            paddle.distributed.all_gather(scale_list, scale)
+
+            # 筛选同一 MP group 内各 DP rank 的 scale 并堆叠
+            # scale_list 的排列顺序: [dp0_mp0, dp0_mp1, ..., dp1_mp0, dp1_mp1, ...]
+            # 索引公式: rank_idx = dp_rank * mp_degree + mp_id
+            same_mp_group_scales = []
+            for dp_rank in range(dp_degree):
+                rank_idx = dp_rank * mp_degree + mp_id
+                # 增加一个维度用于后续 concat
+                expanded_scale = paddle.unsqueeze(scale_list[rank_idx], axis=0)
+                same_mp_group_scales.append(expanded_scale)
+
+            # 沿 axis=0 拼接后取最大值，得到全局 scale
+            stacked_scales = paddle.concat(same_mp_group_scales, axis=0)
+            gathered_scale = stacked_scales.max(axis=0, keepdim=False)
+
+            # 更新内部 scale
+            paddle.assign(gathered_scale, self._scale)
+            return gathered_scale
+        else:
+            return scale
+
+    

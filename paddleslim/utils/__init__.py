@@ -13,3 +13,4 @@
 # limitations under the License.
 
 from . import download
+from . import log
