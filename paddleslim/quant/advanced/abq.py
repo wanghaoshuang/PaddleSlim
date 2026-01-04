@@ -18,6 +18,8 @@ Adaptive Bagging Quantization.
 
 import os
 import json
+from dataclasses import dataclass, field, asdict
+from typing import Optional
 from paddleslim.quant.observers.asym_cachekv import AsymCacheKVObserverLayer
 from paddleslim.utils.log import logger
 from paddleslim.quant.observers import (
@@ -33,7 +35,30 @@ from paddleslim.quant.observers import (
 
 from paddleslim.quant.layers.custom_attention import QuantizedCustomAttentionLayer
 
-__all__ = ['AdaptiveBaggingQuant']
+__all__ = ['AdaptiveBaggingQuant', 'QuantPolicy']
+
+
+@dataclass
+class QuantPolicy:
+    """存储量化策略信息的数据类"""
+    k_max: Optional[float] = None
+    k_min: Optional[float] = None
+    v_max: Optional[float] = None
+    v_min: Optional[float] = None
+    kv_loss: float = 0.0
+    k_int4: int = 1
+    v_int4: int = 1
+
+    def to_dict(self) -> dict:
+        """转换为字典格式"""
+        return asdict(self)
+
+    def update_from_ratio(self, quant_info: dict, ratio: float):
+        """根据 ratio 插值更新 k/v 的 max/min 值"""
+        self.k_max = quant_info['k_max'] * ratio + quant_info['k_max_global'] * (1 - ratio)
+        self.k_min = quant_info['k_min'] * ratio + quant_info['k_min_global'] * (1 - ratio)
+        self.v_max = quant_info['v_max'] * ratio + quant_info['v_max_global'] * (1 - ratio)
+        self.v_min = quant_info['v_min'] * ratio + quant_info['v_min_global'] * (1 - ratio)
 
 class AdaptiveBaggingQuant:
     """
@@ -63,7 +88,6 @@ class AdaptiveBaggingQuant:
         """
         for cur_name, cur_layer in model.named_sublayers():
             print(cur_name, cur_layer)
-        print(stop)
         for cur_name, cur_layer in model.named_sublayers():
             if type(cur_layer) == AvgHeadwiseObserver:
                 if '_observer' not in cur_name:
@@ -85,57 +109,19 @@ class AdaptiveBaggingQuant:
         """
         search best quantizaion policy for each kv layer
         """
-        best_k_scale = None
-        best_k_min = None
-        best_k_zp = None
-        best_v_scale = None
-        best_v_min = None
-        best_v_zp = None
+        kv_name = f"kv_layer_{layer_id}"
+        quant_info = self.quant_info[layer_id]
+        best_policy = QuantPolicy(kv_loss=loss_kv_threshold)
+        best_ratio = None
 
-        best_option_calib_k = None
-        best_option_calib_v = None
-        best_quant_policy = {}
-        kv_name = "kv_layer_" + str(layer_id)
-        bnt = (1 << (quant_bits - 1)) - 1
-        qmin = -bnt - 1
-        qmax = bnt
-        for ratio in kv_losses[kv_name].keys():
-            loss_kv_cur = kv_losses[kv_name][ratio]
-            k_max = self.quant_info[layer_id].get('k_max')
-            k_min = self.quant_info[layer_id].get('k_min')
-            k_max_global = self.quant_info[layer_id].get('k_max_global')
-            k_min_global = self.quant_info[layer_id].get('k_min_global')
-            v_max = self.quant_info[layer_id].get('v_max')
-            v_min = self.quant_info[layer_id].get('v_min')
-            v_max_global = self.quant_info[layer_id].get('v_max_global')
-            v_min_global = self.quant_info[layer_id].get('v_min_global')
+        for ratio, loss_kv_cur in kv_losses[kv_name].items():
+            if loss_kv_cur < best_policy.kv_loss:
+                best_policy.kv_loss = loss_kv_cur
+                best_policy.update_from_ratio(quant_info, ratio)
+                best_ratio = ratio
 
-            k_max_cur = k_max * ratio + k_max_global * (1 - ratio)
-            k_min_cur = k_min * ratio + k_min_global * (1 - ratio)
-            v_max_cur = v_max * ratio + v_max_global * (1 - ratio)
-            v_min_cur = v_min * ratio + v_min_global * (1 - ratio)
-
-            if loss_kv_cur < loss_kv_threshold:
-                loss_kv_threshold = loss_kv_cur
-                best_option_calib_kv = ratio
-
-                best_k_max = k_max_cur
-                best_k_min = k_min_cur
-
-                best_v_max = v_max_cur
-                best_v_min = v_min_cur
-
-        logger.debug(f"kv_name: {kv_name}, best_option_calib_kv: {best_option_calib_kv}")
-
-        best_quant_policy["k_max"] = best_k_max
-        best_quant_policy["k_min"] = best_k_min
-        best_quant_policy["v_max"] = best_v_max
-        best_quant_policy["v_min"] = best_v_min
-        best_quant_policy["kv_loss"] = loss_kv_threshold
-        best_quant_policy["k_int4"] = 1
-        best_quant_policy["v_int4"] = 1
-
-        return best_quant_policy
+        logger.debug(f"kv_name: {kv_name}, best_option_calib_kv: {best_ratio}")
+        return best_policy.to_dict()
 
     def search(self):
         """search best quantizaion policy"""
