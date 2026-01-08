@@ -126,3 +126,55 @@ def get_ln_linear_info(ln_linear_list, norm_flag, linear_flag, fused_qkv,
                         ln_linear_dict[layer_name] = [ln_linear_list[i + 1]]
                         linear_ln_dict[ln_linear_list[i + 1]] = layer_name
     return ln_linear_dict, linear_ln_dict
+
+
+def compute_scales_moe(x, method='abs_max', group_size=-1):
+    """
+    compute_scales
+    """
+    if method == 'abs_max':
+        quant_scale = float(paddle.max(paddle.abs(x.flatten())))
+        quant_scale = 1e-8 if quant_scale == 0.0 else quant_scale
+    elif method == 'avg':
+        quant_scale = paddle.abs(x.reshape((x.shape[0], -1)))
+        quant_scale = paddle.mean(paddle.max(quant_scale, axis=(1)))
+    elif method == 'abs_max_channel_wise':
+        # reduce_axis = tuple([i for i in range(len(x.shape)) if i != 1])
+        reduce_axis = 1
+        quant_scale = paddle.max(paddle.abs(x), axis=reduce_axis)
+        quant_scale = paddle.where(quant_scale == paddle.to_tensor(
+            0, dtype=x.dtype),
+                                   paddle.to_tensor(1e-8, dtype=x.dtype),
+                                   quant_scale)
+    elif method == 'groupwise':
+        input_shape = x.shape
+        input_processed = x.transpose([1, 0]).reshape(
+            [input_shape[1], input_shape[0] // group_size, group_size])
+        quant_scale = paddle.max(
+            paddle.abs(input_processed), axis=2) 
+        quant_scale = paddle.where(quant_scale == paddle.to_tensor(0, dtype=x.dtype),
+                                      paddle.to_tensor(1e-8, dtype=x.dtype), quant_scale)
+        quant_scale = quant_scale.transpose([1, 0])
+        
+    return quant_scale
+
+def piecewise_quant(layer, quant_bits=8):
+    bnt = (1 << (quant_bits - 1)) - 1
+    weight = layer.weight
+    abs_weight = weight.abs()
+    
+    centroids, labels = k_means(abs_weight, 3)
+    new_weight = paddle.zeros_like(weight)
+    for i in range(len(centroids)):
+        mask = paddle.where(labels == centroids.argsort()[i], 1., 0.)
+        piece_weight = mask * weight
+    
+        quant_scale = compute_scales(piece_weight)
+        quant_weight = paddle.clip(
+            paddle.round(piece_weight / quant_scale * bnt), -bnt - 1, bnt)
+        quant_dequant_weight = quant_weight / bnt * quant_scale
+        new_weight += quant_dequant_weight
+
+    del quant_dequant_weight, quant_weight, quant_scale, mask, abs_weight, centroids, labels
+
+    paddle.assign(new_weight, output=weight)

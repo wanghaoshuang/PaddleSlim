@@ -21,6 +21,12 @@ from .abs_max import AbsmaxObserver
 from .mse_weight import MSEChannelWiseWeightObserver
 from .abs_max_weight import AbsMaxChannelWiseWeightObserver
 from .groupwise import GroupWiseWeightObserver
+from .avg_headwise import AvgHeadwiseObserver
+from .kcache_channelwise import KCacheChannelWiseObserver
+from .asym_cachekv import AsymCacheKVObserver
+from .token_quantile import TokenQuantileObserver
+from .abs_max_tokenwise import AbsmaxTokenwiseObserver
+from .asym_groupwise import AsymGroupwiseObserver
 
 __all__ = [
     "HistObserver",
@@ -32,5 +38,12 @@ __all__ = [
     "AbsmaxObserver",
     "MSEChannelWiseWeightObserver",
     "AbsMaxChannelWiseWeightObserver",
-    "GroupWiseWeightObserver"
+    "GroupWiseWeightObserver",
+    "AvgHeadwiseObserver",
+    "KCacheChannelWiseObserver",
+    "AsymCacheKVObserver",
+    "TokenQuantileObserver",
+    "AbsmaxTokenwiseObserver",
+    "AbsMaxHeadwiseObserver",
+    "AsymGroupwiseObserver",
 ]

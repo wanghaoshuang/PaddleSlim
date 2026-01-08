@@ -21,6 +21,12 @@ from . import layerwise_quant_error
 from . import utils_layers
 from . import awq_search
 from . import auto_clip
+from . import smooth_searchv2
+from . import token_wise_clipping
+from . import quarot
+from . import perm_rotate
+from . import moe_scales
+from . import reorder_weight
 
 from .gptq import *
 from .smooth import *
@@ -31,6 +37,13 @@ from .layerwise_quant_error import *
 from .utils_layers import *
 from .awq_search import *
 from .auto_clip import *
+from .smooth_searchv2 import *
+from .token_wise_clipping import *
+from .quarot import *
+from .perm_rotate import *
+from .perm_rotate_w import *
+from .moe_scales import *
+from .reorder_weight import *
 
 __all__ = []
 __all__ += gptq.__all__
@@ -42,3 +55,9 @@ __all__ += layerwise_quant_error.__all__
 __all__ += utils_layers.__all__
 __all__ += awq_search.__all__
 __all__ += auto_clip.__all__
+__all__ += smooth_searchv2.__all__
+__all__ += token_wise_clipping.__all__
+__all__ += perm_rotate.__all__
+__all__ += perm_rotate_w.__all__
+__all__ += moe_scales.__all__
+__all__ += reorder_weight.__all__

@@ -13,5 +13,6 @@
 # limitations under the License.
 
 from .parallel_linear import QuantizedColumnParallelLinear, QuantizedRowParallelLinear
+from .custom_attention import QuantizedCustomAttentionLayer
 
-__all__ = ["QuantizedColumnParallelLinear", "QuantizedRowParallelLinear"]
+__all__ = ["QuantizedColumnParallelLinear", "QuantizedRowParallelLinear", "QuantizedCustomAttentionLayer"]

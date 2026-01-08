@@ -80,8 +80,8 @@ def prepare_qconfig(args):
         cachekv_bits = qt.cachekv_bits
         if cachekv_bits == 8:
             cachekv = [
-                AvgHeadwiseObserver(quant_bits=cachekv_bits, moving_avg=True, quant_axis=1, do_fp8_quant=True),
-                AvgHeadwiseObserver(quant_bits=cachekv_bits, moving_avg=True, quant_axis=1, do_fp8_quant=True)
+                AvgHeadwiseObserver(quant_bits=cachekv_bits, moving_avg=True, quant_axis=1),
+                AvgHeadwiseObserver(quant_bits=cachekv_bits, moving_avg=True, quant_axis=1)
             ]
         elif cachekv_bits == 4:
             if getattr(args, 'abq', False):
